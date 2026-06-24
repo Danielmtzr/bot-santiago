@@ -3,12 +3,11 @@ Bot de ventas - Santiago: La madurez del discipulo (KIT COMPLETO)
 En Pos de Ti / Ele Media
 WhatsApp Cloud API (Meta) + Flask
 
-Embudo:
-  Bienvenida + leccion de muestra  ->  Oferta (4h)  ->  3 seguimientos
-Los seguimientos se cancelan solos si la persona responde o manda comprobante.
-
-Cuando alguien escribe algo que el bot no reconoce, se DETIENE la automatizacion
-y se marca para atencion humana (no inventa respuestas).
+Mejoras v3:
+- Embudo que AVANZA: bienvenida+PDF -> oferta -> pago -> cierre
+- Responde SIEMPRE a precio/info/pago sin importar la etapa
+- AVISA al dueno por WhatsApp cuando alguien dice algo fuera de guion
+- Comando "reiniciar" borra el registro del contacto (para pruebas)
 """
 
 import os
@@ -21,33 +20,33 @@ import requests
 from flask import Flask, request
 
 # ------------------------------------------------------------------
-#  CONFIGURACION  (se lee de variables de entorno - se ponen en Render)
+#  CONFIGURACION  (variables de entorno - se ponen en Render)
 # ------------------------------------------------------------------
 TOKEN        = os.environ.get("WHATSAPP_TOKEN", "")
 PHONE_ID     = os.environ.get("WHATSAPP_PHONE_ID", "")
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "enposdeti2026")
-
-# URL publica del PDF de la leccion de muestra (Google Drive, descarga directa)
 LINK_MUESTRA = os.environ.get("LINK_MUESTRA", "")
-
 PRECIO       = os.environ.get("PRECIO", "299")
+
+# Numero del DUENO para recibir avisos de atencion humana (formato internacional sin +)
+# Ej: 5215579177044
+DUENO_TEL    = os.environ.get("DUENO_TEL", "")
 
 API_URL = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
 
 app = Flask(__name__)
 
 # ------------------------------------------------------------------
-#  MENSAJES  (tu voz, tono pastoral cercano - producto: KIT completo)
+#  MENSAJES
 # ------------------------------------------------------------------
 MSG_BIENVENIDA = (
     "Hola! Que gusto saludarte. 🙏\n\n"
     "Te comparto una leccion de muestra del curso *Santiago: La madurez del discipulo*, "
     "un estudio completo del libro de Santiago para vivir una fe que se note en la vida diaria.\n\n"
-    "Aqui te la dejo, revisala con calma."
+    "Aqui te la dejo, revisala con calma. En un momento te cuento que incluye el curso completo."
 )
 
 MSG_OFERTA = (
-    "Espero que la leccion te haya hablado al corazon.\n\n"
     "El curso completo no es solo un libro: es un *kit listo para ensenar*, con 14 lecciones "
     "que recorren toda la carta de Santiago. Incluye tres piezas:\n\n"
     "📘 *Manual del Alumno* - el cuaderno que sigue cada persona\n"
@@ -55,8 +54,8 @@ MSG_OFERTA = (
     "📊 *Presentacion* - el curso en diapositivas para proyectar\n\n"
     "Sirve para tu grupo, tu celula, tu clase de iglesia o estudio personal. Lo imprimes y lo usas "
     "las veces que quieras.\n\n"
-    f"Todo el kit en PDF por ${PRECIO} MXN.\n\n"
-    "Si quieres, te paso las formas de pago. Solo dime."
+    f"Todo el kit en PDF por *${PRECIO} MXN*.\n\n"
+    "Si quieres, te paso las formas de pago. Solo dime *pago*."
 )
 
 MSG_PAGO = (
@@ -71,40 +70,56 @@ MSG_PAGO = (
     "En cuanto hagas tu deposito, mandame tu comprobante por aqui y te envio el kit completo. 🙏"
 )
 
-MSG_SEG1 = (
-    "Hola de nuevo. 🙏 Solo queria saber si pudiste revisar la leccion de muestra.\n\n"
-    "Santiago tiene una forma muy directa de confrontarnos con amor. "
-    f"Si quieres el kit completo (Alumno + Maestro + Presentacion), sigue disponible por ${PRECIO} MXN. "
-    "Dime y te paso las formas de pago."
-)
-
-MSG_SEG2 = (
-    "A veces uno lo deja para despues y se pasa el tiempo.\n\n"
-    "Si algo te detiene, sea el precio o alguna duda, dimelo y lo platicamos. "
-    "El kit sigue aqui cuando estes listo para llevar a tu grupo por toda la carta de Santiago."
-)
-
-MSG_SEG3 = (
-    "Esta es mi ultima nota para no incomodarte. 🙏\n\n"
-    "Decidas lo que decidas, sigue buscando crecer en tu fe y en la de los tuyos. "
-    "Y si quieres acompanarte de este curso, aqui estare."
-)
-
 MSG_GRACIAS = (
     "Mil gracias! 🙏 En cuanto confirme tu pago te envio el kit completo: "
     "Manual del Alumno, Guia del Maestro y Presentacion. Dios te bendiga."
 )
 
-# Texto que, si la persona lo manda, entendemos como que ya pago
-PALABRAS_PAGO = ["comprobante", "ya pague", "ya transferi", "deposite", "listo el pago",
-                 "hice el pago", "ya hice", "transferencia hecha"]
+MSG_NO_ENTIENDO = (
+    "Gracias por tu mensaje. 🙏 Permiteme un momento para responderte personalmente, "
+    "en breve te contesto."
+)
 
-# Texto que entendemos como interes general
-PALABRAS_INTERES = ["si", "sí", "quiero", "info", "informacion", "precio", "cuanto",
-                    "como", "me interesa", "dale", "ok"]
+MSG_PRECIO_RAPIDO = (
+    f"El curso completo *Santiago: La madurez del discipulo* (kit de 14 lecciones: "
+    f"Alumno + Maestro + Presentacion) tiene un costo de *${PRECIO} MXN*.\n\n"
+    "Si quieres las formas de pago, escribe *pago*."
+)
 
-# Texto que entendemos como pedir formas de pago
-PALABRAS_PIDE_PAGO = ["pago", "formas de pago", "deposito", "transferencia", "comprar", "clabe", "oxxo"]
+MSG_SEG1 = (
+    "Hola de nuevo. 🙏 Solo queria saber si pudiste revisar la leccion de muestra.\n\n"
+    f"Si quieres el kit completo (Alumno + Maestro + Presentacion), sigue disponible por ${PRECIO} MXN. "
+    "Escribe *pago* y te paso las formas."
+)
+
+MSG_SEG2 = (
+    "A veces uno lo deja para despues y se pasa el tiempo.\n\n"
+    "Si algo te detiene, sea el precio o alguna duda, dimelo y lo platicamos. "
+    "El kit sigue aqui cuando estes listo."
+)
+
+# ------------------------------------------------------------------
+#  DETECCION DE INTENCIONES (palabras clave)
+# ------------------------------------------------------------------
+def es_saludo(t):
+    return any(p in t for p in ["hola", "buenas", "buenos dias", "buenas tardes",
+                                 "buenas noches", "info", "informacion", "me interesa",
+                                 "quiero el curso", "santiago", "curso"])
+
+def es_precio(t):
+    return any(p in t for p in ["precio", "cuanto", "cuesta", "vale", "costo"])
+
+def es_pide_pago(t):
+    return any(p in t for p in ["pago", "pagar", "formas de pago", "como pago",
+                                 "deposito", "transferencia", "comprar", "clabe", "oxxo"])
+
+def es_comprobante(t):
+    return any(p in t for p in ["comprobante", "ya pague", "ya transferi", "deposite",
+                                 "listo el pago", "hice el pago", "ya hice", "transferencia hecha",
+                                 "ya deposite"])
+
+def es_si(t):
+    return t.strip() in ["si", "sí", "claro", "ok", "va", "dale", "quiero", "sale"]
 
 # ------------------------------------------------------------------
 #  BASE DE DATOS
@@ -149,26 +164,28 @@ def upsert_contacto(tel, **campos):
             ph = ", ".join("?" for _ in campos)
             conn.execute(f"INSERT INTO contactos ({cols}) VALUES ({ph})", list(campos.values()))
 
+def borrar_contacto(tel):
+    with db() as conn:
+        conn.execute("DELETE FROM contactos WHERE telefono=?", (tel,))
+
 # ------------------------------------------------------------------
 #  ENVIO DE MENSAJES
 # ------------------------------------------------------------------
 def enviar_texto(tel, texto):
-    payload = {
+    _post({
         "messaging_product": "whatsapp",
         "to": tel,
         "type": "text",
         "text": {"body": texto},
-    }
-    _post(payload)
+    })
 
 def enviar_documento_url(tel, url, nombre_archivo, caption=""):
-    payload = {
+    _post({
         "messaging_product": "whatsapp",
         "to": tel,
         "type": "document",
         "document": {"link": url, "filename": nombre_archivo, "caption": caption},
-    }
-    _post(payload)
+    })
 
 def _post(payload):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
@@ -179,6 +196,17 @@ def _post(payload):
     except Exception as e:
         print("Excepcion al enviar:", e)
 
+def avisar_dueno(tel_cliente, texto_cliente):
+    """Manda un WhatsApp al dueno avisando que un cliente necesita atencion."""
+    if not DUENO_TEL:
+        print(f"[ATENCION HUMANA] {tel_cliente} escribio: {texto_cliente}")
+        return
+    aviso = (f"⚠️ Un cliente necesita tu atencion.\n\n"
+             f"Numero: {tel_cliente}\n"
+             f"Escribio: {texto_cliente}\n\n"
+             f"Entra a responderle personalmente.")
+    enviar_texto(DUENO_TEL, aviso)
+
 # ------------------------------------------------------------------
 #  LOGICA DEL EMBUDO
 # ------------------------------------------------------------------
@@ -188,46 +216,77 @@ def iniciar_embudo(tel):
         enviar_documento_url(tel, LINK_MUESTRA,
                              "Santiago - Leccion de muestra.pdf",
                              "Leccion de muestra 🙏")
-    upsert_contacto(tel, etapa="muestra_enviada",
+    # Mandamos la oferta un instante despues para que llegue despues del PDF
+    enviar_texto(tel, MSG_OFERTA)
+    upsert_contacto(tel, etapa="oferta_enviada",
                     ultimo_envio=datetime.utcnow().isoformat(),
                     respondio=0, pago=0)
 
 def manejar_respuesta(tel, texto):
-    c = get_contacto(tel)
     texto_low = texto.lower().strip()
 
-    # Detectar comprobante de pago
-    if any(p in texto_low for p in PALABRAS_PAGO):
-        upsert_contacto(tel, pago=1, respondio=1, etapa="cerrado")
-        enviar_texto(tel, MSG_GRACIAS)
+    # Comando de prueba: reinicia el contacto desde cero
+    if texto_low == "reiniciar":
+        borrar_contacto(tel)
+        enviar_texto(tel, "(Listo, reinicie tu conversacion. Escribe 'hola' para empezar de nuevo.)")
         return
 
-    # Contacto nuevo -> iniciar embudo
+    c = get_contacto(tel)
+
+    # --- Cosas que respondemos SIEMPRE, sin importar la etapa ---
+
+    # Comprobante de pago
+    if es_comprobante(texto_low):
+        upsert_contacto(tel, pago=1, respondio=1, etapa="cerrado")
+        enviar_texto(tel, MSG_GRACIAS)
+        avisar_dueno(tel, f"PAGO RECIBIDO (revisa comprobante): {texto}")
+        return
+
+    # Pide formas de pago
+    if es_pide_pago(texto_low):
+        enviar_texto(tel, MSG_PAGO)
+        upsert_contacto(tel, etapa="pago_enviado",
+                        ultimo_envio=datetime.utcnow().isoformat(), respondio=1)
+        return
+
+    # Pregunta el precio (aunque ya se lo hayamos dado antes)
+    if es_precio(texto_low):
+        enviar_texto(tel, MSG_PRECIO_RAPIDO)
+        if c:
+            upsert_contacto(tel, respondio=1)
+        else:
+            upsert_contacto(tel, etapa="oferta_enviada",
+                            ultimo_envio=datetime.utcnow().isoformat(), respondio=1)
+        return
+
+    # --- Logica por etapa ---
+
+    # Contacto nuevo -> embudo completo (bienvenida + PDF + oferta)
     if c is None:
         iniciar_embudo(tel)
         return
 
-    # Ya estaba en el embudo y respondio -> marcar (detiene auto-seguimiento)
-    upsert_contacto(tel, respondio=1)
-
-    # Si pide formas de pago directamente
-    if any(p in texto_low for p in PALABRAS_PIDE_PAGO):
+    # Ya existe: si dice "si" tras ver la oferta -> mandar formas de pago
+    if es_si(texto_low):
         enviar_texto(tel, MSG_PAGO)
-        upsert_contacto(tel, etapa="pago_enviado", ultimo_envio=datetime.utcnow().isoformat())
+        upsert_contacto(tel, etapa="pago_enviado",
+                        ultimo_envio=datetime.utcnow().isoformat(), respondio=1)
         return
 
-    # Si muestra interes general -> oferta
-    if any(p in texto_low for p in PALABRAS_INTERES):
+    # Saludo de alguien que ya existe -> reenvia la oferta (sin repetir bienvenida)
+    if es_saludo(texto_low):
         enviar_texto(tel, MSG_OFERTA)
-        upsert_contacto(tel, etapa="oferta_enviada", ultimo_envio=datetime.utcnow().isoformat())
+        upsert_contacto(tel, etapa="oferta_enviada",
+                        ultimo_envio=datetime.utcnow().isoformat(), respondio=1)
         return
 
-    # Respuesta que no entendemos -> atencion humana
-    upsert_contacto(tel, etapa="atencion_humana")
-    print(f"[ATENCION HUMANA] {tel} escribio: {texto}")
+    # Cualquier otra cosa -> no entiendo -> aviso al dueno
+    enviar_texto(tel, MSG_NO_ENTIENDO)
+    upsert_contacto(tel, etapa="atencion_humana", respondio=1)
+    avisar_dueno(tel, texto)
 
 # ------------------------------------------------------------------
-#  SEGUIMIENTOS AUTOMATICOS  (hilo en segundo plano)
+#  SEGUIMIENTOS AUTOMATICOS
 # ------------------------------------------------------------------
 def revisar_seguimientos():
     while True:
@@ -236,7 +295,7 @@ def revisar_seguimientos():
             with db() as conn:
                 filas = conn.execute(
                     "SELECT * FROM contactos WHERE pago=0 AND respondio=0 "
-                    "AND etapa IN ('muestra_enviada','seguimiento1','seguimiento2')"
+                    "AND etapa IN ('oferta_enviada','seguimiento1')"
                 ).fetchall()
 
             for f in filas:
@@ -246,22 +305,18 @@ def revisar_seguimientos():
                 tel = c["telefono"]
                 etapa = c["etapa"]
 
-                if etapa == "muestra_enviada" and horas >= 4:
-                    enviar_texto(tel, MSG_OFERTA)
+                if etapa == "oferta_enviada" and horas >= 24:
+                    enviar_texto(tel, MSG_SEG1)
                     upsert_contacto(tel, etapa="seguimiento1", ultimo_envio=ahora.isoformat())
 
                 elif etapa == "seguimiento1" and horas >= 24:
-                    enviar_texto(tel, MSG_SEG1)
-                    upsert_contacto(tel, etapa="seguimiento2", ultimo_envio=ahora.isoformat())
-
-                elif etapa == "seguimiento2" and horas >= 24:
                     enviar_texto(tel, MSG_SEG2)
-                    upsert_contacto(tel, etapa="seguimiento3_pendiente", ultimo_envio=ahora.isoformat())
+                    upsert_contacto(tel, etapa="seguimiento2", ultimo_envio=ahora.isoformat())
 
         except Exception as e:
             print("Error en seguimientos:", e)
 
-        time.sleep(1800)  # 30 minutos
+        time.sleep(1800)
 
 # ------------------------------------------------------------------
 #  WEBHOOK
@@ -286,6 +341,11 @@ def recibir_mensaje():
             texto = ""
             if msg.get("type") == "text":
                 texto = msg["text"]["body"]
+            else:
+                # Si manda imagen/audio/etc (ej. comprobante en foto) -> aviso al dueno
+                avisar_dueno(tel, f"[Envio un archivo/imagen tipo: {msg.get('type')}]")
+                enviar_texto(tel, MSG_NO_ENTIENDO)
+                return "OK", 200
             manejar_respuesta(tel, texto)
     except Exception as e:
         print("Error procesando mensaje:", e)
