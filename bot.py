@@ -1,10 +1,10 @@
 """
-Bot de ventas - La madurez del discipulo (Santiago)
+Bot de ventas - Santiago: La madurez del discipulo (KIT COMPLETO)
 En Pos de Ti / Ele Media
 WhatsApp Cloud API (Meta) + Flask
 
 Embudo:
-  Bienvenida + capitulo gratis  ->  Oferta (4h despues)  ->  3 seguimientos
+  Bienvenida + leccion de muestra  ->  Oferta (4h)  ->  3 seguimientos
 Los seguimientos se cancelan solos si la persona responde o manda comprobante.
 
 Cuando alguien escribe algo que el bot no reconoce, se DETIENE la automatizacion
@@ -15,7 +15,7 @@ import os
 import time
 import threading
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import requests
 from flask import Flask, request
@@ -23,62 +23,91 @@ from flask import Flask, request
 # ------------------------------------------------------------------
 #  CONFIGURACION  (se lee de variables de entorno - se ponen en Render)
 # ------------------------------------------------------------------
-TOKEN        = os.environ.get("WHATSAPP_TOKEN", "")        # Token permanente de Meta
-PHONE_ID     = os.environ.get("WHATSAPP_PHONE_ID", "")     # Identificador del numero remitente
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "enposdeti2026")  # Lo inventas tu, valida el webhook
+TOKEN        = os.environ.get("WHATSAPP_TOKEN", "")
+PHONE_ID     = os.environ.get("WHATSAPP_PHONE_ID", "")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "enposdeti2026")
 
-# media_id del PDF del capitulo de muestra (se sube una vez a Meta, ver guia)
-CAPITULO_MEDIA_ID = os.environ.get("CAPITULO_MEDIA_ID", "")
+# URL publica del PDF de la leccion de muestra (Google Drive, descarga directa)
+LINK_MUESTRA = os.environ.get("LINK_MUESTRA", "")
 
-# Datos del producto
-PRECIO       = os.environ.get("PRECIO", "99")
-LINK_PAGO    = os.environ.get("LINK_PAGO", "")            # Tu link de pago / transferencia
+PRECIO       = os.environ.get("PRECIO", "299")
 
 API_URL = f"https://graph.facebook.com/v21.0/{PHONE_ID}/messages"
 
 app = Flask(__name__)
 
 # ------------------------------------------------------------------
-#  MENSAJES  (tu voz, tono pastoral cercano)
+#  MENSAJES  (tu voz, tono pastoral cercano - producto: KIT completo)
 # ------------------------------------------------------------------
 MSG_BIENVENIDA = (
     "Hola! Que gusto saludarte. 🙏\n\n"
-    "Te comparto el capitulo de muestra de *La madurez del discipulo*, "
-    "un estudio del libro de Santiago para crecer en una fe que se nota en la vida diaria.\n\n"
-    "Aqui te lo dejo, leelo con calma."
+    "Te comparto una leccion de muestra del curso *Santiago: La madurez del discipulo*, "
+    "un estudio completo del libro de Santiago para vivir una fe que se note en la vida diaria.\n\n"
+    "Aqui te la dejo, revisala con calma."
 )
 
 MSG_OFERTA = (
-    "Espero que el capitulo te haya hablado al corazon.\n\n"
-    "El estudio completo tiene 14 lecciones, con preguntas de reflexion para que no solo lo leas, "
-    "sino que lo vivas. Esta pensado para llevarte por todo Santiago, semana a semana.\n\n"
-    f"Lo puedes tener hoy por ${PRECIO}. {LINK_PAGO}\n\n"
-    "Si tienes alguna duda, escribeme con confianza."
+    "Espero que la leccion te haya hablado al corazon.\n\n"
+    "El curso completo no es solo un libro: es un *kit listo para ensenar*, con 14 lecciones "
+    "que recorren toda la carta de Santiago. Incluye tres piezas:\n\n"
+    "📘 *Manual del Alumno* - el cuaderno que sigue cada persona\n"
+    "📗 *Guia del Maestro* - todo para dirigir la clase paso a paso (no necesitas experiencia)\n"
+    "📊 *Presentacion* - el curso en diapositivas para proyectar\n\n"
+    "Sirve para tu grupo, tu celula, tu clase de iglesia o estudio personal. Lo imprimes y lo usas "
+    "las veces que quieras.\n\n"
+    f"Todo el kit en PDF por ${PRECIO} MXN.\n\n"
+    "Si quieres, te paso las formas de pago. Solo dime."
+)
+
+MSG_PAGO = (
+    "Con gusto. Te dejo dos opciones de pago, la que se te haga mas comoda:\n\n"
+    "🏪 *Deposito en OXXO (Spin)*\n"
+    "Codigo: 2242 1701 8225 7045\n"
+    "A nombre de Daniel Martinez Ramirez\n\n"
+    "💳 *Transferencia o deposito Santander*\n"
+    "Daniel Martinez Ramirez\n"
+    "CLABE: 014180140135369275\n"
+    "Cuenta: 14013536927\n\n"
+    "En cuanto hagas tu deposito, mandame tu comprobante por aqui y te envio el kit completo. 🙏"
 )
 
 MSG_SEG1 = (
-    "Hola de nuevo. 🙏 Solo queria saber si pudiste leer el capitulo.\n\n"
+    "Hola de nuevo. 🙏 Solo queria saber si pudiste revisar la leccion de muestra.\n\n"
     "Santiago tiene una forma muy directa de confrontarnos con amor. "
-    f"Si quieres el estudio completo, sigue disponible por ${PRECIO}. {LINK_PAGO}"
+    f"Si quieres el kit completo (Alumno + Maestro + Presentacion), sigue disponible por ${PRECIO} MXN. "
+    "Dime y te paso las formas de pago."
 )
 
 MSG_SEG2 = (
     "A veces uno lo deja para despues y se pasa el tiempo.\n\n"
     "Si algo te detiene, sea el precio o alguna duda, dimelo y lo platicamos. "
-    f"El estudio sigue aqui cuando estes listo. {LINK_PAGO}"
+    "El kit sigue aqui cuando estes listo para llevar a tu grupo por toda la carta de Santiago."
 )
 
 MSG_SEG3 = (
     "Esta es mi ultima nota para no incomodarte. 🙏\n\n"
-    "Decidas lo que decidas, sigue buscando crecer en tu fe. "
-    f"Y si quieres acompanarte de este estudio, aqui estare. {LINK_PAGO}"
+    "Decidas lo que decidas, sigue buscando crecer en tu fe y en la de los tuyos. "
+    "Y si quieres acompanarte de este curso, aqui estare."
+)
+
+MSG_GRACIAS = (
+    "Mil gracias! 🙏 En cuanto confirme tu pago te envio el kit completo: "
+    "Manual del Alumno, Guia del Maestro y Presentacion. Dios te bendiga."
 )
 
 # Texto que, si la persona lo manda, entendemos como que ya pago
-PALABRAS_PAGO = ["comprobante", "ya pague", "ya transferi", "deposite", "listo el pago", "hice el pago"]
+PALABRAS_PAGO = ["comprobante", "ya pague", "ya transferi", "deposite", "listo el pago",
+                 "hice el pago", "ya hice", "transferencia hecha"]
+
+# Texto que entendemos como interes general
+PALABRAS_INTERES = ["si", "sí", "quiero", "info", "informacion", "precio", "cuanto",
+                    "como", "me interesa", "dale", "ok"]
+
+# Texto que entendemos como pedir formas de pago
+PALABRAS_PIDE_PAGO = ["pago", "formas de pago", "deposito", "transferencia", "comprar", "clabe", "oxxo"]
 
 # ------------------------------------------------------------------
-#  BASE DE DATOS  (sqlite - guarda en que paso va cada contacto)
+#  BASE DE DATOS
 # ------------------------------------------------------------------
 DB = "contactos.db"
 
@@ -132,19 +161,19 @@ def enviar_texto(tel, texto):
     }
     _post(payload)
 
-def enviar_documento(tel, media_id, nombre_archivo, caption=""):
+def enviar_documento_url(tel, url, nombre_archivo, caption=""):
     payload = {
         "messaging_product": "whatsapp",
         "to": tel,
         "type": "document",
-        "document": {"id": media_id, "filename": nombre_archivo, "caption": caption},
+        "document": {"link": url, "filename": nombre_archivo, "caption": caption},
     }
     _post(payload)
 
 def _post(payload):
     headers = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
     try:
-        r = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+        r = requests.post(API_URL, headers=headers, json=payload, timeout=30)
         if r.status_code >= 400:
             print("Error al enviar:", r.status_code, r.text)
     except Exception as e:
@@ -154,26 +183,23 @@ def _post(payload):
 #  LOGICA DEL EMBUDO
 # ------------------------------------------------------------------
 def iniciar_embudo(tel):
-    """Primer contacto: bienvenida + capitulo gratis."""
     enviar_texto(tel, MSG_BIENVENIDA)
-    if CAPITULO_MEDIA_ID:
-        enviar_documento(tel, CAPITULO_MEDIA_ID,
-                          "La madurez del discipulo - Muestra.pdf",
-                          "Capitulo de muestra 🙏")
+    if LINK_MUESTRA:
+        enviar_documento_url(tel, LINK_MUESTRA,
+                             "Santiago - Leccion de muestra.pdf",
+                             "Leccion de muestra 🙏")
     upsert_contacto(tel, etapa="muestra_enviada",
                     ultimo_envio=datetime.utcnow().isoformat(),
                     respondio=0, pago=0)
 
 def manejar_respuesta(tel, texto):
-    """La persona escribio algo. Decidimos que hacer."""
     c = get_contacto(tel)
     texto_low = texto.lower().strip()
 
     # Detectar comprobante de pago
     if any(p in texto_low for p in PALABRAS_PAGO):
         upsert_contacto(tel, pago=1, respondio=1, etapa="cerrado")
-        enviar_texto(tel, "Mil gracias! 🙏 En cuanto confirme tu pago te envio el estudio completo. "
-                          "Dios te bendiga.")
+        enviar_texto(tel, MSG_GRACIAS)
         return
 
     # Contacto nuevo -> iniciar embudo
@@ -181,24 +207,29 @@ def manejar_respuesta(tel, texto):
         iniciar_embudo(tel)
         return
 
-    # Ya estaba en el embudo y respondio -> marcar y dejar de auto-seguir
+    # Ya estaba en el embudo y respondio -> marcar (detiene auto-seguimiento)
     upsert_contacto(tel, respondio=1)
 
-    # Si es una respuesta simple y positiva, mandamos la oferta de una vez
-    palabras_interes = ["si", "sí", "quiero", "info", "informacion", "precio", "cuanto", "como"]
-    if any(p in texto_low for p in palabras_interes):
+    # Si pide formas de pago directamente
+    if any(p in texto_low for p in PALABRAS_PIDE_PAGO):
+        enviar_texto(tel, MSG_PAGO)
+        upsert_contacto(tel, etapa="pago_enviado", ultimo_envio=datetime.utcnow().isoformat())
+        return
+
+    # Si muestra interes general -> oferta
+    if any(p in texto_low for p in PALABRAS_INTERES):
         enviar_texto(tel, MSG_OFERTA)
         upsert_contacto(tel, etapa="oferta_enviada", ultimo_envio=datetime.utcnow().isoformat())
-    else:
-        # Respuesta que no entendemos -> atencion humana
-        upsert_contacto(tel, etapa="atencion_humana")
-        print(f"[ATENCION HUMANA] {tel} escribio: {texto}")
+        return
+
+    # Respuesta que no entendemos -> atencion humana
+    upsert_contacto(tel, etapa="atencion_humana")
+    print(f"[ATENCION HUMANA] {tel} escribio: {texto}")
 
 # ------------------------------------------------------------------
 #  SEGUIMIENTOS AUTOMATICOS  (hilo en segundo plano)
 # ------------------------------------------------------------------
 def revisar_seguimientos():
-    """Cada 30 min revisa quien necesita seguimiento."""
     while True:
         try:
             ahora = datetime.utcnow()
@@ -215,17 +246,14 @@ def revisar_seguimientos():
                 tel = c["telefono"]
                 etapa = c["etapa"]
 
-                # 4h despues de la muestra -> oferta
                 if etapa == "muestra_enviada" and horas >= 4:
                     enviar_texto(tel, MSG_OFERTA)
                     upsert_contacto(tel, etapa="seguimiento1", ultimo_envio=ahora.isoformat())
 
-                # 24h despues -> seguimiento 1
                 elif etapa == "seguimiento1" and horas >= 24:
                     enviar_texto(tel, MSG_SEG1)
                     upsert_contacto(tel, etapa="seguimiento2", ultimo_envio=ahora.isoformat())
 
-                # 24h mas -> seguimiento 2
                 elif etapa == "seguimiento2" and horas >= 24:
                     enviar_texto(tel, MSG_SEG2)
                     upsert_contacto(tel, etapa="seguimiento3_pendiente", ultimo_envio=ahora.isoformat())
@@ -240,7 +268,6 @@ def revisar_seguimientos():
 # ------------------------------------------------------------------
 @app.route("/webhook", methods=["GET"])
 def verificar_webhook():
-    """Meta llama aqui una vez para verificar que el servidor es tuyo."""
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
@@ -250,7 +277,6 @@ def verificar_webhook():
 
 @app.route("/webhook", methods=["POST"])
 def recibir_mensaje():
-    """Meta manda aqui cada mensaje entrante."""
     data = request.get_json()
     try:
         entry = data["entry"][0]["changes"][0]["value"]
